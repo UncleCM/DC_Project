@@ -7,15 +7,15 @@ import uuid
 import sys
 import pygame
 
-BROKER = "100.66.30.77"
+BROKER = "127.0.0.1"
 PORT = 1883
 USERNAME = "dc25"
 PASSWORD = "kmitl-dc25"
 
-MY_POND_NAME = "Biggy_Pond"
+MY_POND_NAME = "Group1_Pond"
 MAX_FISH = 10
 SPAWN_RATE = 5.0
-TARGET_POND_TOPIC = "fishhaven/Group1_Pond/in" 
+TARGET_POND_TOPIC = "fishhaven/Biggy_Pond/in" 
 MY_INBOX_TOPIC = f"fishhaven/{MY_POND_NAME}/in"
 
 SCREEN_WIDTH = 800
@@ -33,6 +33,11 @@ class Fish:
         self.visual_type = visual_type 
         self.posture_frame = 0 
         self.status = "SWIMMING"
+
+        # --- YOU WERE MISSING THESE LINES ---
+        self.x = random.randint(50, SCREEN_WIDTH - 50)
+        self.vx = random.choice([-2, -1, 1, 2])
+        # ------------------------------------
 
         self.y = random.randint(50, SCREEN_HEIGHT - 50)
         self.vy = random.choice([-2, -1, 1, 2])

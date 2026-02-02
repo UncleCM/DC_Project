@@ -11,16 +11,16 @@ import pygame
 #              CONFIGURATION
 # ==========================================
 # 1. Network Settings
-BROKER = "100.66.30.77"
+BROKER = "127.0.0.1"
 PORT = 1883
 USERNAME = "dc25"
 PASSWORD = "kmitl-dc25"
 
 # 2. Pond Settings
-MY_POND_NAME = "Biggy_Pond"
-MAX_FISH = 10                  # <--- This is your limit
-SPAWN_RATE = 2.0               # Speed up spawning slightly for testing
-TARGET_POND_TOPIC = "fishhaven/ReferencePond/in" 
+MY_POND_NAME = "GroupA_Pond"
+MAX_FISH = 10                  # The limit of fish in your pond
+SPAWN_RATE = 2.0               # Seconds between new fish
+TARGET_POND_TOPIC = "fishhaven/Biggy_Pond/in" 
 MY_INBOX_TOPIC = f"fishhaven/{MY_POND_NAME}/in"
 
 # 3. GUI Settings
@@ -42,6 +42,11 @@ class Fish:
         self.visual_type = visual_type 
         self.posture_frame = 0 
         self.status = "SWIMMING"
+        
+        # --- FIX 1: IMMUNITY TIMER ---
+        # Record when the fish entered/spawned. 
+        # It cannot be kicked out until it has been here for X seconds.
+        self.arrival_time = time.time()
 
         # Movement Properties
         self.x = random.randint(50, SCREEN_WIDTH - 50)
@@ -74,11 +79,15 @@ class Fish:
 
     def draw(self, screen, font):
         if self.status == "MIGRATING":
-            color = (100, 100, 100) 
+            color = (100, 100, 100) # Grey indicates waiting for network
             label = "MIGRATING..."
         else:
             color = FISH_COLOR
-            label = f"{int(self.life)}s | {self.origin}"
+            # Visual debug: Show immunity status
+            if time.time() - self.arrival_time < 5.0:
+                label = f"{int(self.life)}s (Immune)"
+            else:
+                label = f"{int(self.life)}s | {self.origin}"
 
         # Draw Body
         pygame.draw.ellipse(screen, color, (self.x, self.y, 40, 20))
@@ -136,6 +145,12 @@ class PondApp:
         try:
             payload = msg.payload.decode()
             data = json.loads(payload)
+            
+            # --- FIX 3: PREVENT SELF-MESSAGING ---
+            # If I accidentally sent a fish to myself, ignore it.
+            if data.get("origin") == MY_POND_NAME:
+                return 
+
             new_fish = Fish(
                 origin=data["origin"], 
                 life=data["life"], 
@@ -147,6 +162,7 @@ class PondApp:
             print(f" [Err] Corrupt fish: {e}")
 
     def on_publish(self, client, userdata, mid):
+        """Called when Broker confirms receipt (QoS 1)."""
         if mid in self.pending_migrations:
             fish = self.pending_migrations[mid]
             print(f" [Net] Fish {fish.id} successfully migrated.")
@@ -156,6 +172,11 @@ class PondApp:
 
     def attempt_migration(self, fish):
         if fish.status == "MIGRATING": return
+
+        # --- FIX 1 (LOGIC): CHECK IMMUNITY ---
+        # If fish arrived less than 5 seconds ago, it is too tired to move.
+        if time.time() - fish.arrival_time < 5.0:
+            return 
 
         print(f" <- Fish {fish.id} waiting to migrate...")
         fish.status = "MIGRATING"
@@ -170,7 +191,6 @@ class PondApp:
     def start(self):
         # 1. Start Network
         try:
-            # FIX: Added '60' (KeepAlive) which was missing in your code
             self.client.connect(BROKER, PORT, 60) 
             self.client.loop_start() 
         except Exception as e:
@@ -197,19 +217,19 @@ class PondApp:
                     if event.type == pygame.QUIT:
                         self.running = False
 
-                # --- LOGIC: SPAWNING CONTROL ---
+                # --- SPAWNING LOGIC ---
                 if spawn_timer > SPAWN_RATE:
-                    # NEW: Only spawn if below MAX_FISH limit
                     if len(self.fishes) < MAX_FISH:
                         self.fishes.append(Fish(origin=MY_POND_NAME))
                         spawn_timer = 0
                     else:
-                        # Pond is full. Wait a bit, check again later.
-                        # This keeps the timer high so we spawn immediately 
-                        # once a slot opens up.
                         spawn_timer = SPAWN_RATE + 0.1
 
-                # Fish Updates
+                # --- FISH UPDATES ---
+                # FIX 2: Single-File Migration Flag
+                # Ensures we don't dump 10 fish into the network in 1 frame
+                crowd_migration_triggered = False 
+
                 for fish in self.fishes[:]:
                     if fish.life <= 0:
                         self.fishes.remove(fish)
@@ -220,12 +240,19 @@ class PondApp:
                         fish.move()
                         fish.animate()
 
-                        # Migration Chance
-                        # Logic: Random chance OR if we somehow exceeded the limit 
-                        # (e.g., received many fish from neighbors)
-                        is_crowded = len(self.fishes) > MAX_FISH
-                        if (random.random() < 0.05 * dt) or is_crowded:
+                        # --- MIGRATION LOGIC ---
+                        # 1. Random Chance (Independent)
+                        if random.random() < 0.05 * dt:
                             self.attempt_migration(fish)
+                        
+                        # 2. Crowd Control (Hysteresis)
+                        # Only allow migration if (A) We are over limit AND (B) No one else left this frame
+                        elif len(self.fishes) > MAX_FISH and not crowd_migration_triggered:
+                            self.attempt_migration(fish)
+                            # If this fish successfully started migration process (passed immunity check),
+                            # set the flag so no one else leaves this frame.
+                            if fish.status == "MIGRATING":
+                                crowd_migration_triggered = True
 
                 # --- DRAWING ---
                 screen.fill(BG_COLOR)
@@ -233,7 +260,7 @@ class PondApp:
                 for fish in self.fishes:
                     fish.draw(screen, font)
 
-                # Update Dashboard to show Limit
+                # Update Dashboard
                 stats = f"Fish: {len(self.fishes)}/{MAX_FISH} | Broker: {BROKER}"
                 screen.blit(header_font.render(stats, True, (255, 255, 255)), (10, 10))
 

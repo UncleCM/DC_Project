@@ -5,7 +5,7 @@ import threading
 import random
 import uuid
 import sys
-import pygame # <--- NEW IMPORT
+import pygame 
 
 # ==========================================
 #              CONFIGURATION
@@ -18,17 +18,17 @@ PASSWORD = "kmitl-dc25"
 
 # 2. Pond Settings
 MY_POND_NAME = "Biggy_Pond"
-MAX_FISH = 10
-SPAWN_RATE = 5.0
-TARGET_POND_TOPIC = "fishhaven/Biggy_Pond/in" 
+MAX_FISH = 10                  # <--- This is your limit
+SPAWN_RATE = 2.0               # Speed up spawning slightly for testing
+TARGET_POND_TOPIC = "fishhaven/ReferencePond/in" 
 MY_INBOX_TOPIC = f"fishhaven/{MY_POND_NAME}/in"
 
 # 3. GUI Settings
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 FPS = 60
-BG_COLOR = (20, 40, 60)      # Dark Blue Water
-FISH_COLOR = (255, 165, 0)   # Orange
+BG_COLOR = (20, 40, 60)      
+FISH_COLOR = (255, 165, 0)   
 TEXT_COLOR = (255, 255, 255)
 
 # ==========================================
@@ -43,11 +43,9 @@ class Fish:
         self.posture_frame = 0 
         self.status = "SWIMMING"
 
-        # --- YOU WERE MISSING THESE LINES ---
+        # Movement Properties
         self.x = random.randint(50, SCREEN_WIDTH - 50)
         self.vx = random.choice([-2, -1, 1, 2])
-        # ------------------------------------
-
         self.y = random.randint(50, SCREEN_HEIGHT - 50)
         self.vy = random.choice([-2, -1, 1, 2])
         self.anim_timer = 0
@@ -69,33 +67,27 @@ class Fish:
                 self.vy *= -1
 
     def animate(self):
-        # Cycle through 4 postures (0, 1, 2, 3) roughly every 10 frames
         self.anim_timer += 1
         if self.anim_timer > 10:
             self.posture_frame = (self.posture_frame + 1) % 4
             self.anim_timer = 0
 
     def draw(self, screen, font):
-        """Draw the fish using Pygame primitives (Shapes)"""
-        # Determine Color based on status
         if self.status == "MIGRATING":
-            color = (100, 100, 100) # Grey (Waiting for network)
+            color = (100, 100, 100) 
             label = "MIGRATING..."
         else:
             color = FISH_COLOR
             label = f"{int(self.life)}s | {self.origin}"
 
-        # Draw Body (Simple Ellipse)
+        # Draw Body
         pygame.draw.ellipse(screen, color, (self.x, self.y, 40, 20))
 
-        # Draw Tail (Animated based on posture_frame)
+        # Draw Tail
         tail_offset_y = 0
-        if self.posture_frame == 0: tail_offset_y = 0
-        elif self.posture_frame == 1: tail_offset_y = -5
-        elif self.posture_frame == 2: tail_offset_y = 0
+        if self.posture_frame == 1: tail_offset_y = -5
         elif self.posture_frame == 3: tail_offset_y = 5
 
-        # Tail Triangle
         tail_points = [
             (self.x, self.y + 10),
             (self.x - 10, self.y + 5 + tail_offset_y),
@@ -103,7 +95,7 @@ class Fish:
         ]
         pygame.draw.polygon(screen, color, tail_points)
 
-        # Draw Info Text above fish
+        # Draw Info Text
         text_surf = font.render(label, True, TEXT_COLOR)
         screen.blit(text_surf, (self.x - 10, self.y - 15))
 
@@ -124,7 +116,6 @@ class PondApp:
         self.running = True
         self.pending_migrations = {} 
 
-        # MQTT Setup
         self.client = mqtt.Client()
         if USERNAME and PASSWORD:
             self.client.username_pw_set(USERNAME, PASSWORD)
@@ -150,7 +141,6 @@ class PondApp:
                 life=data["life"], 
                 name=data["name"]
             )
-            # Give arrived fish a distinct color or visual cue if desired
             self.fishes.append(new_fish)
             print(f" -> SPLASH! Fish {new_fish.id} arrived!")
         except Exception as e:
@@ -168,19 +158,20 @@ class PondApp:
         if fish.status == "MIGRATING": return
 
         print(f" <- Fish {fish.id} waiting to migrate...")
-        fish.status = "MIGRATING" # Freeze in place
+        fish.status = "MIGRATING"
         
         msg_info = self.client.publish(TARGET_POND_TOPIC, fish.to_json(), qos=1)
         if msg_info.rc == mqtt.MQTT_ERR_SUCCESS:
             self.pending_migrations[msg_info.mid] = fish
         else:
-            fish.status = "SWIMMING" # Network failed, keep swimming
+            fish.status = "SWIMMING" 
 
     # --- MAIN LOOP ---
     def start(self):
         # 1. Start Network
         try:
-            self.client.connect(BROKER, PORT,   )
+            # FIX: Added '60' (KeepAlive) which was missing in your code
+            self.client.connect(BROKER, PORT, 60) 
             self.client.loop_start() 
         except Exception as e:
             print(f"CRITICAL ERROR: {e}")
@@ -199,19 +190,24 @@ class PondApp:
         # 3. Game Loop
         try:
             while self.running:
-                dt = clock.tick(FPS) / 1000.0 # Delta time in seconds
+                dt = clock.tick(FPS) / 1000.0 
                 spawn_timer += dt
 
-                # --- EVENTS ---
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
 
-                # --- LOGIC ---
-                # Spawning
+                # --- LOGIC: SPAWNING CONTROL ---
                 if spawn_timer > SPAWN_RATE:
-                    self.fishes.append(Fish(origin=MY_POND_NAME))
-                    spawn_timer = 0
+                    # NEW: Only spawn if below MAX_FISH limit
+                    if len(self.fishes) < MAX_FISH:
+                        self.fishes.append(Fish(origin=MY_POND_NAME))
+                        spawn_timer = 0
+                    else:
+                        # Pond is full. Wait a bit, check again later.
+                        # This keeps the timer high so we spawn immediately 
+                        # once a slot opens up.
+                        spawn_timer = SPAWN_RATE + 0.1
 
                 # Fish Updates
                 for fish in self.fishes[:]:
@@ -225,6 +221,8 @@ class PondApp:
                         fish.animate()
 
                         # Migration Chance
+                        # Logic: Random chance OR if we somehow exceeded the limit 
+                        # (e.g., received many fish from neighbors)
                         is_crowded = len(self.fishes) > MAX_FISH
                         if (random.random() < 0.05 * dt) or is_crowded:
                             self.attempt_migration(fish)
@@ -232,12 +230,11 @@ class PondApp:
                 # --- DRAWING ---
                 screen.fill(BG_COLOR)
 
-                # Draw Fishes
                 for fish in self.fishes:
                     fish.draw(screen, font)
 
-                # Draw Dashboard
-                stats = f"Fish: {len(self.fishes)} | Broker: {BROKER}"
+                # Update Dashboard to show Limit
+                stats = f"Fish: {len(self.fishes)}/{MAX_FISH} | Broker: {BROKER}"
                 screen.blit(header_font.render(stats, True, (255, 255, 255)), (10, 10))
 
                 pygame.display.flip()

@@ -43,14 +43,13 @@ class Fish:
         self.posture_frame = 0 
         self.status = "SWIMMING"
 
-        # --- GUI PROPERTIES ---
-        # Random starting position
+        # --- YOU WERE MISSING THESE LINES ---
         self.x = random.randint(50, SCREEN_WIDTH - 50)
-        self.y = random.randint(50, SCREEN_HEIGHT - 50)
-        # Random velocity
         self.vx = random.choice([-2, -1, 1, 2])
+        # ------------------------------------
+
+        self.y = random.randint(50, SCREEN_HEIGHT - 50)
         self.vy = random.choice([-2, -1, 1, 2])
-        # Animation timer
         self.anim_timer = 0
 
     def age(self, dt):

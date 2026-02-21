@@ -17,9 +17,9 @@ USERNAME = "dc25"
 PASSWORD = "kmitl-dc25"
 
 # 2. Pond Settings
-MY_POND_NAME = "fih"
+MY_POND_NAME = "fis" # Renamed for clarity
 MAX_FISH = 10                  
-SPAWN_RATE = 2.0               
+SPAWN_RATE = 0.2               # <--- CHANGED: Very fast spawning for stress test
 TARGET_POND_TOPIC = "fishhaven/Biggy_Pond/in" 
 MY_INBOX_TOPIC = f"fishhaven/{MY_POND_NAME}/in"
 
@@ -28,7 +28,7 @@ SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 FPS = 60
 BG_COLOR = (20, 40, 60)      
-FISH_COLOR = (255, 165, 0)   
+FISH_COLOR = (255, 50, 50)   # <--- CHANGED: Red fish to indicate danger/stress
 TEXT_COLOR = (255, 255, 255)
 
 # ==========================================
@@ -77,7 +77,7 @@ class Fish:
         else:
             color = FISH_COLOR
             if time.time() - self.arrival_time < 5.0:
-                label = f"{int(self.life)}s (Immune)"
+                label = f"{int(self.life)}s"
             else:
                 label = f"{int(self.life)}s | {self.origin}"
 
@@ -93,8 +93,9 @@ class Fish:
             (self.x - 10, self.y + 15 + tail_offset_y)
         ]
         pygame.draw.polygon(screen, color, tail_points)
-        text_surf = font.render(label, True, TEXT_COLOR)
-        screen.blit(text_surf, (self.x - 10, self.y - 15))
+        # Only draw text if fish count is low to save performance during crash test
+        # text_surf = font.render(label, True, TEXT_COLOR)
+        # screen.blit(text_surf, (self.x - 10, self.y - 15))
 
     def to_json(self):
         return json.dumps({
@@ -140,14 +141,14 @@ class PondApp:
                 name=data["name"]
             )
             self.fishes.append(new_fish)
-            print(f" -> SPLASH! Fish {new_fish.id} arrived!")
+            # print(f" -> SPLASH! Fish {new_fish.id} arrived!") # Commented out for speed
         except Exception as e:
             print(f" [Err] Corrupt fish: {e}")
 
     def on_publish(self, client, userdata, mid):
         if mid in self.pending_migrations:
             fish = self.pending_migrations[mid]
-            print(f" [Net] Fish {fish.id} successfully migrated.")
+            # print(f" [Net] Fish {fish.id} successfully migrated.")
             if fish in self.fishes:
                 self.fishes.remove(fish)
             del self.pending_migrations[mid]
@@ -157,7 +158,7 @@ class PondApp:
         if time.time() - fish.arrival_time < 5.0:
             return 
 
-        print(f" <- Fish {fish.id} waiting to migrate...")
+        # print(f" <- Fish {fish.id} waiting to migrate...")
         fish.status = "MIGRATING"
         
         msg_info = self.client.publish(TARGET_POND_TOPIC, fish.to_json(), qos=1)
@@ -166,11 +167,7 @@ class PondApp:
         else:
             fish.status = "SWIMMING" 
 
-    # --- FIX: UN-INDENT THIS FUNCTION SO IT BELONGS TO THE CLASS ---
     def publish_stats(self):
-        """
-        Sends a JSON report of the pond's health to a stats topic.
-        """
         origins = {}
         for fish in self.fishes:
             o = fish.origin
@@ -199,7 +196,7 @@ class PondApp:
 
         pygame.init()
         screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption(f"{MY_POND_NAME} - Fish Haven")
+        pygame.display.set_caption(f"{MY_POND_NAME} - STRESS TEST MODE")
         clock = pygame.time.Clock()
         font = pygame.font.SysFont("Arial", 12)
         header_font = pygame.font.SysFont("Arial", 20)
@@ -217,18 +214,15 @@ class PondApp:
                     if event.type == pygame.QUIT:
                         self.running = False
 
+                # --- UNLIMITED SPAWNING (CRASH LOGIC) ---
                 if spawn_timer > SPAWN_RATE:
-                    if len(self.fishes) < MAX_FISH:
-                        self.fishes.append(Fish(origin=MY_POND_NAME))
-                        spawn_timer = 0
-                    else:
-                        spawn_timer = SPAWN_RATE + 0.1
+                    # REMOVED: if len(self.fishes) < MAX_FISH:
+                    self.fishes.append(Fish(origin=MY_POND_NAME))
+                    spawn_timer = 0
 
                 if stats_timer > 1.0:
                     self.publish_stats()
                     stats_timer = 0
-
-                crowd_migration_triggered = False 
 
                 for fish in self.fishes[:]:
                     if fish.life <= 0:
@@ -240,27 +234,25 @@ class PondApp:
                         fish.move()
                         fish.animate()
 
+                        # --- REMOVED FORCED MIGRATION ---
+                        # We only keep random migration (optional)
+                        # But we DELETED the "elif len > MAX" block entirely.
                         if random.random() < 0.05 * dt:
                             self.attempt_migration(fish)
-                        
-                        elif len(self.fishes) > MAX_FISH and not crowd_migration_triggered:
-                            self.attempt_migration(fish)
-                            if fish.status == "MIGRATING":
-                                crowd_migration_triggered = True
 
                 screen.fill(BG_COLOR)
 
                 for fish in self.fishes:
                     fish.draw(screen, font)
 
-                stats = f"Fish: {len(self.fishes)}/{MAX_FISH} | Broker: {BROKER}"
-                screen.blit(header_font.render(stats, True, (255, 255, 255)), (10, 10))
+                # Update Dashboard
+                stats = f"WARNING: STRESS TEST | Fish: {len(self.fishes)}"
+                screen.blit(header_font.render(stats, True, (255, 100, 100)), (10, 10))
 
                 pygame.display.flip()
 
         except KeyboardInterrupt:
             pass
-        # Add this to catch errors like the one you just had in the future:
         except Exception as e:
             print(f"CRASH ERROR: {e}") 
         finally:

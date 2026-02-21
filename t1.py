@@ -20,7 +20,7 @@ PASSWORD = "kmitl-dc25"
 MY_POND_NAME = "fih"
 MAX_FISH = 10                  
 SPAWN_RATE = 2.0               
-TARGET_POND_TOPIC = "fishhaven/duck/in" 
+TARGET_POND_TOPIC = "fishhaven/Biggy_Pond/in" 
 MY_INBOX_TOPIC = f"fishhaven/{MY_POND_NAME}/in"
 
 # 3. GUI Settings
